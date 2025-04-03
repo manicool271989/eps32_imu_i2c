@@ -3,6 +3,7 @@
 
 // ESP32 libraries.
 #include "driver/i2c.h"
+#include "imu.h"
 
 // FreeRTOS libraries.
 #include "freertos/FreeRTOS.h"
@@ -23,14 +24,7 @@
 //                                       TickType_t ticks_to_wait
 //                                       );
 
-// IMU-6050 I2C Slave Address
-#define IMU_I2C_SLV_ADDR 0x68 //0b110100 AD0 - 0b0
-#define IMU_AFS_SEL 0x01 // 0x00 = +/-2g, 0x01 = +/-4g, 0x02 = +/-8g, 0x03 = +/-16g. 
-#define IMU_ACCEL_SENSITIVITY_SCALE_FACTOR 8192 // 2g = 16384 LSB/g, 4g = 8192 LSB/g, 8g = 4096 LSB/g, 16g = 2048 LSB/g.
 
-// IMU-6050 Internal Registers
-#define ACCEL_XOUT_15_8 0x3B
-#define ACCEL_XOUT_7_0 0x3C
 
 #define ACK_CHECK_EN 0x1
 
@@ -85,27 +79,65 @@ void app_main(void)
     write_buf[1] = IMU_AFS_SEL;
     i2c_master_write_to_device(I2C_NUM_0, IMU_I2C_SLV_ADDR, write_buf, 2, 1000/portTICK_PERIOD_MS);
     vTaskDelay(500/portTICK_PERIOD_MS);
-    int16_t accel_meas_x;
-    int16_t accel_meas_y;
-    int16_t accel_meas_z;
-
+    
     // Write
     while(1)
     {
         //printf("{write_buf_msb[0]} = {%x}\n", write_buf_msb[0]);
 
-        // Read IMU Register ACCEL_XOUT_7_0
+        // Read IMU Register ACCEL_XOUT
+        memset(read_buf, 0, 255);
         write_buf_msb[0] = 0x3B;
         i2c_master_write_to_device(I2C_NUM_0, IMU_I2C_SLV_ADDR, write_buf_msb, 1, 1000/portTICK_PERIOD_MS);
         i2c_master_read_from_device(I2C_NUM_0, IMU_I2C_SLV_ADDR, read_buf, 6, 1000/portTICK_PERIOD_MS);
-        accel_meas_x = (int16_t) read_buf[0] << 8 | (int16_t) read_buf[1];
-        accel_meas_y = (int16_t) read_buf[2] << 8 | (int16_t) read_buf[3];
-        accel_meas_z = (int16_t) read_buf[4] << 8 | (int16_t) read_buf[5];
-        printf("IMU X Y Z: %f %f %f\n",  (accel_meas_x/IMU_ACCEL_SENSITIVITY_SCALE_FACTOR)*9.81, (accel_meas_y/IMU_ACCEL_SENSITIVITY_SCALE_FACTOR)*9.81, (accel_meas_z/IMU_ACCEL_SENSITIVITY_SCALE_FACTOR)*9.81);
-        //printf("IMU X Y Z: %d %d %d\n", ((int16_t) read_buf[0] << 8 | (int16_t) read_buf[1])/16384, 
-        //                                ((int16_t) read_buf[2] << 8 | (int16_t) read_buf[3])/16384, 
-        //                                ((int16_t) read_buf[4] << 8 | (int16_t) read_buf[5])/16384);
+
+        // Store raw accelerometer data
+        imu6050_1.accelerometer.raw_data[X_AXIS] = (int16_t) read_buf[0] << 8 | (int16_t) read_buf[1];
+        imu6050_1.accelerometer.raw_data[Y_AXIS] = (int16_t) read_buf[2] << 8 | (int16_t) read_buf[3];
+        imu6050_1.accelerometer.raw_data[Z_AXIS] = (int16_t) read_buf[4] << 8 | (int16_t) read_buf[5];
+
+        // printf("IMU ACCEL RAW X Y Z: %d %d %d\n",  imu6050_1.accelerometer.raw_data[X_AXIS],
+        //                                  imu6050_1.accelerometer.raw_data[Y_AXIS],
+        //                                  imu6050_1.accelerometer.raw_data[Z_AXIS]
+        //                                 );
+
+        // Calculate scaled accelerometer data
+        imu6050_1.accelerometer.scaled_data[X_AXIS] = (imu6050_1.accelerometer.raw_data[X_AXIS]/IMU_ACCEL_SENSITIVITY_SCALE_FACTOR)*9.81;
+        imu6050_1.accelerometer.scaled_data[Y_AXIS] = (imu6050_1.accelerometer.raw_data[Y_AXIS]/IMU_ACCEL_SENSITIVITY_SCALE_FACTOR)*9.81;
+        imu6050_1.accelerometer.scaled_data[Z_AXIS] = (imu6050_1.accelerometer.raw_data[Z_AXIS]/IMU_ACCEL_SENSITIVITY_SCALE_FACTOR)*9.81;
+
+        // printf("IMU ACCEL SCALED X Y Z: %f %f %f\n",  (imu6050_1.accelerometer.scaled_data[X_AXIS], 
+        //                                  (imu6050_1.accelerometer.scaled_data[Y_AXIS],
+        //                                  (imu6050_1.accelerometer.scaled_data[Z_AXIS]
+        //                                 );
+
+        
+        // Read IMU Register GYRO_XOUT
         memset(read_buf, 0, 255);
+        write_buf_msb[0] = 0x43;
+        i2c_master_write_to_device(I2C_NUM_0, IMU_I2C_SLV_ADDR, write_buf_msb, 1, 1000/portTICK_PERIOD_MS);
+        i2c_master_read_from_device(I2C_NUM_0, IMU_I2C_SLV_ADDR, read_buf, 6, 1000/portTICK_PERIOD_MS);
+
+        // Store raw accelerometer data
+        imu6050_1.gyroscope.raw_data[X_AXIS] = (int16_t) read_buf[0] << 8 | (int16_t) read_buf[1];
+        imu6050_1.gyroscope.raw_data[Y_AXIS] = (int16_t) read_buf[2] << 8 | (int16_t) read_buf[3];
+        imu6050_1.gyroscope.raw_data[Z_AXIS] = (int16_t) read_buf[4] << 8 | (int16_t) read_buf[5];
+
+        // printf("IMU GYRO RAW X Y Z: %d %d %d\n",  imu6050_1.gyroscope.raw_data[X_AXIS],
+        //                                  imu6050_1.gyroscope.raw_data[Y_AXIS],
+        //                                  imu6050_1.gyroscope.raw_data[Z_AXIS]
+        //                                 );
+
+        // Calculate scaled gyroscope data
+        imu6050_1.gyroscope.scaled_data[X_AXIS] = imu6050_1.gyroscope.raw_data[X_AXIS]/IMU_GYRO_SENSITIVITY_SCALE_FACTOR;
+        imu6050_1.gyroscope.scaled_data[Y_AXIS] = imu6050_1.gyroscope.raw_data[Y_AXIS]/IMU_GYRO_SENSITIVITY_SCALE_FACTOR;
+        imu6050_1.gyroscope.scaled_data[Z_AXIS] = imu6050_1.gyroscope.raw_data[Z_AXIS]/IMU_GYRO_SENSITIVITY_SCALE_FACTOR;
+
+        printf("IMU GRYO SCALED X Y Z: %f %f %f\n",  imu6050_1.gyroscope.scaled_data[X_AXIS],
+                                         imu6050_1.gyroscope.scaled_data[Y_AXIS],
+                                         imu6050_1.gyroscope.scaled_data[Z_AXIS]
+                                        );
+        
         vTaskDelay(100/portTICK_PERIOD_MS);
 
         // // Read IMU Register WHO_AM_I
